@@ -118,7 +118,7 @@ class UIComponents:
         # 채널별 체크박스 생성 및 그리드에 배치
         for i, channel in enumerate(channel_list):
             checkbox = QCheckBox(channel)
-            checkbox.setChecked(False)  # 기본값: 선택 해제
+            checkbox.setChecked(True)  # 기본값: 선택
             
             # 그리드에 추가 (행, 열 계산)
             row = i // items_per_row

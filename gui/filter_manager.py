@@ -74,14 +74,10 @@ class FilterManager:
         
         if len(selected_statuses) < 5:  # 5개 상태가 모두 선택되지 않은 경우
             # 선택된 상태 값과 일치하는 행만 남김
-            status_filter_indices = []
-            
-            for row_id in self.parent.original_df.index:
-                row_status = self.parent.row_status.get(row_id, 0)  # 상태가 없으면 미정(0)으로 간주
-                if row_status in selected_statuses:
-                    status_filter_indices.append(row_id)
-            
-            mask = mask & pd.Series(status_filter_indices, index=self.parent.original_df.index)
+            status_mask = self.parent.original_df.index.to_series().apply(
+                lambda idx: self.parent.row_status.get(idx, 0) in selected_statuses
+            )
+            mask = mask & status_mask
         
         # 5. 채널 필터 적용
         selected_channels = [channel for channel, checkbox in self.parent.channel_checkboxes.items() 

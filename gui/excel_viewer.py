@@ -10,6 +10,7 @@ from PyQt5.QtWidgets import (QMainWindow, QTableWidget, QTableWidgetItem,
                             QComboBox, QCheckBox)
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QColor
+import datetime
 
 from widgets import StatusButton, URLTableWidgetItem
 from handlers import ExcelHandler, FilterHandler
@@ -197,17 +198,29 @@ class ExcelViewer(QMainWindow):
         layout.addWidget(contact_search_group)
         
         # 버튼 영역 (초기화 버튼)
-        buttons_layout = QHBoxLayout()
+        buttons_layout = QGridLayout()
         
         # 필터 초기화 버튼
         self.reset_btn = QPushButton("필터 초기화")
         self.reset_btn.clicked.connect(self.reset_filter)
-        buttons_layout.addWidget(self.reset_btn)
+        buttons_layout.addWidget(self.reset_btn, 0, 0)
         
-        # 현재 화면 저장 버튼 (초기화 버튼 옆)
+        # 빈 칼럼 추가
+        buttons_layout.addWidget(QWidget(), 0, 1)
+        
+        # URL로 보기 콤보박스 추가
+        self.url_view_combo = QComboBox()
+        self.url_view_combo.addItems(["전체", "미정", "대기", "선정", "제외"])
+        buttons_layout.addWidget(self.url_view_combo, 0, 2)
+        
+        # URL로 보기 버튼 추가
+        self.url_view_btn = QPushButton("URL띄우기")
+        self.url_view_btn.clicked.connect(self.open_urls_in_table)
+        buttons_layout.addWidget(self.url_view_btn, 0, 3)
+        
+        # 현재 화면 저장 버튼
         self.save_btn = QPushButton("현재화면 엑셀저장")
         self.save_btn.clicked.connect(self.save_current_view)
-        # 스타일 변경
         self.save_btn.setStyleSheet("""
             QPushButton {
                 background-color: #FF9800;  /* 주황색 배경 */
@@ -220,7 +233,24 @@ class ExcelViewer(QMainWindow):
                 background-color: #FB8C00;  /* 호버 시 더 진한 주황색 */
             }
         """)
-        buttons_layout.addWidget(self.save_btn)
+        buttons_layout.addWidget(self.save_btn, 0, 4)
+        
+        # 현재 화면 저장2 버튼 추가
+        self.save_btn_2 = QPushButton("준비중")
+        self.save_btn_2.setEnabled(False)  # 클릭 불가 설정
+        self.save_btn_2.setStyleSheet("""
+            QPushButton {
+                background-color: #808080;  /* 회색 배경 */
+                color: white;  /* 흰색 글자 */
+                font-weight: bold;  /* 굵은 글자 */
+                border-radius: 5px;  /* 둥근 모서리 */
+                padding: 10px;  /* 여백 */
+            }
+            QPushButton:hover {
+                background-color: #A9A9A9;  /* 호버 시 더 밝은 회색 */
+            }
+        """)
+        buttons_layout.addWidget(self.save_btn_2, 0, 5)
         
         layout.addLayout(buttons_layout)
         
@@ -567,7 +597,19 @@ class ExcelViewer(QMainWindow):
         
         # 백업 파일 생성 (이전 파일이 있는 경우)
         if os.path.exists(file_path):
-            backup_path = file_path + ".bak"
+            # 타임스탬프 추가
+            timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+            
+            # 백업 폴더 경로 설정
+            backup_dir = os.path.join(os.path.dirname(file_path), "bak")
+            
+            # 백업 폴더가 없으면 생성
+            if not os.path.exists(backup_dir):
+                os.makedirs(backup_dir)
+            
+            # 백업 파일 경로 설정
+            backup_path = os.path.join(backup_dir, f"{os.path.basename(file_path)}.{timestamp}.bak")
+            
             try:
                 import shutil
                 shutil.copy2(file_path, backup_path)
@@ -672,8 +714,7 @@ class ExcelViewer(QMainWindow):
             self.save_work_state(auto_save=True)
             
             # 자동 저장 시간 업데이트
-            from datetime import datetime
-            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             self.last_auto_save_label.setText(f"마지막 자동 저장: {current_time}")
 
     def update_all_tabs(self):
@@ -822,25 +863,19 @@ class ExcelViewer(QMainWindow):
             self.stats_label.setText(f"탭 '{tab_name}' 통계 ▶ 데이터 없음")
             return
         
-        # 원본 데이터프레임에서 탭 이름(상품명)에 해당하는 행만 필터링
-        product_col_name = self.original_df.columns[self.product_column_idx]
+        # 현재 선택된 탭의 테이블 가져오기
+        current_tab_index = self.tab_widget.currentIndex()
+        current_tab = self.tab_widget.widget(current_tab_index)
+        current_table = None
         
-        # 현재 필터링된 데이터프레임의 인덱스 가져오기
-        filtered_indices = set(self.filtered_df.index)
+        for child in current_tab.children():
+            if isinstance(child, QTableWidget):
+                current_table = child
+                break
         
-        # 해당 상품이 포함된 행만 선택 (대소문자 무시, contains 사용)
-        product_mask = self.original_df[product_col_name].str.contains(
-            tab_name, case=False, na=False, regex=False)
-        
-        # 현재 필터링된 데이터와 교집합 (두 조건 모두 충족)
-        tab_filtered_indices = set(self.original_df[product_mask].index) & filtered_indices
-        
-        # 상태가 '선정'(1)과 '대기'(2)인 행만 선택
-        status_filtered_indices = set()
-        for idx in tab_filtered_indices:
-            status = self.row_status.get(idx, 0)  # 기본값 0(미정)
-            if status == 1 or status == 2:  # 선정 또는 대기 상태만 포함
-                status_filtered_indices.add(idx)
+        if current_table is None or current_table.rowCount() == 0:
+            self.stats_label.setText(f"탭 '{tab_name}' 통계 ▶ 데이터 없음")
+            return
         
         # 상태별 카운트
         status_count = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0}
@@ -848,19 +883,22 @@ class ExcelViewer(QMainWindow):
         # 지정채널별 카운트 
         channel_count = {}
         
-        # 탭에 표시된 데이터에 대한 상태 및 채널 카운트
-        for idx in status_filtered_indices:
-            # 상태 카운트
-            status = self.row_status.get(idx, 0)
-            status_count[status] = status_count.get(status, 0) + 1
-            
-            # 지정채널 카운트 (선정 상태인 경우)
-            if status == 1 and idx in self.assigned_channels:
-                channel_name = self.assigned_channels[idx]
-                channel_count[channel_name] = channel_count.get(channel_name, 0) + 1
+        # 현재 화면에 표시된 데이터에 대한 상태 및 채널 카운트
+        for row in range(current_table.rowCount()):
+            # 상태 버튼에서 상태 가져오기
+            status_btn = current_table.cellWidget(row, 0)
+            if isinstance(status_btn, StatusButton):
+                current_status = status_btn.get_status()
+                status_count[current_status] += 1
+                
+                # 지정채널 카운트
+                channel_item = current_table.item(row, 2)  # 지정채널 열 인덱스
+                if channel_item:
+                    channel_name = channel_item.text()
+                    channel_count[channel_name] = channel_count.get(channel_name, 0) + 1
         
         # 통계 텍스트 생성
-        stats_text = f"탭 '{tab_name}' 통계▶ "
+        stats_text = f"탭 '{tab_name}' 통계 ▶ "
         status_texts = []
         status_names = {0: "미정", 1: "선정", 2: "대기", 3: "제외", 4: "완료"}
         
@@ -868,8 +906,8 @@ class ExcelViewer(QMainWindow):
             if count > 0:
                 status_texts.append(f"{status_names[status]}: {count}명")
         
-        # 현재 탭의 필터링된 데이터의 행 수 추가
-        visible_rows = len(status_filtered_indices)
+        # 현재 화면의 총 인원 추가
+        visible_rows = current_table.rowCount()
         status_texts.append(f"현재 화면: {visible_rows}명")
         
         stats_text += ", ".join(status_texts)
@@ -880,7 +918,7 @@ class ExcelViewer(QMainWindow):
             for channel, count in channel_count.items():
                 channel_texts.append(f"{channel}: {count}명")
             
-            stats_text += " | 지정채널: " + ", ".join(channel_texts)
+            stats_text += " ▶ 지정채널: " + ", ".join(channel_texts)
         
         self.stats_label.setText(stats_text)
 
@@ -1002,4 +1040,102 @@ class ExcelViewer(QMainWindow):
             
             stats_text += " | 지정채널: " + ", ".join(channel_texts)
         
-        self.stats_label.setText(stats_text) 
+        self.stats_label.setText(stats_text)
+
+    def open_urls_in_table(self):
+        """현재 테이블에 표시된 URL을 선택된 상태에 따라 열기"""
+        if self.filtered_df is None or self.filtered_df.empty:
+            QMessageBox.warning(self, "URL 열기 오류", "표시된 데이터가 없습니다.")
+            return
+        
+        # 현재 선택된 탭의 테이블 가져오기
+        current_tab_index = self.tab_widget.currentIndex()
+        current_tab = self.tab_widget.widget(current_tab_index)
+        current_table = None
+        
+        for child in current_tab.children():
+            if isinstance(child, QTableWidget):
+                current_table = child
+                break
+        
+        if current_table is None or current_table.rowCount() == 0:
+            QMessageBox.warning(self, "URL 열기 오류", "선택한 탭에 데이터가 없습니다.")
+            return
+        
+        # URL 열 인덱스 확인 (테이블 내에서의 인덱스)
+        url_table_idx = -1
+        for i, col in enumerate(self.filtered_df.columns):
+            col_str = str(col).lower()
+            if "url" in col_str or "계정 링크" in col or "블로그" in col:
+                url_table_idx = i + 3  # +3은 상태, 지정상품, 지정채널 칼럼 때문
+                break
+        
+        if url_table_idx == -1:
+            QMessageBox.warning(self, "URL 열기 오류", "URL 열을 찾을 수 없습니다.")
+            return
+        
+        # 선택된 상태 가져오기
+        selected_status_text = self.url_view_combo.currentText()
+        status_mapping = {"미정": 0, "대기": 2, "선정": 1, "제외": 3}
+        selected_status = status_mapping.get(selected_status_text, None)
+        
+        # 테이블의 모든 URL 수집
+        urls = []
+        for row in range(current_table.rowCount()):
+            item = current_table.item(row, url_table_idx)
+            if item:
+                url_text = item.text().strip()
+                if url_text:
+                    # URL 형식 확인 및 수정
+                    url = url_text
+                    if not url.startswith(('http://', 'https://')):
+                        url = 'https://' + url
+                    
+                    # 상태에 따라 URL 추가
+                    status_btn = current_table.cellWidget(row, 0)  # 상태 버튼은 cellWidget으로 가져옴
+                    if isinstance(status_btn, StatusButton):
+                        current_status = status_btn.get_status()
+                        if selected_status_text == "전체" or current_status == selected_status:
+                            urls.append(url)
+        
+        if not urls:
+            QMessageBox.warning(self, "URL 열기 오류", "선택한 탭에 해당 상태의 데이터가 없습니다.")
+            return
+        
+        # 사용자 확인 팝업
+        reply = QMessageBox.question(self, 'URL 열기 확인', 
+                                     f"{len(urls)}개의 URL을 열겠습니까?", 
+                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        
+        if reply == QMessageBox.Yes:
+            # URL을 20개씩 열기
+            self.open_urls_in_batches(urls, batch_size=20, delay=10000)  # 10초 = 10000ms
+
+    def open_urls_in_batches(self, urls, batch_size, delay):
+        """URL을 배치 단위로 열기"""
+        if not urls:
+            self.status_label.setText("모든 URL이 열렸습니다.")
+            return
+        
+        # 현재 배치의 URL 열기
+        for url in urls[:batch_size]:
+            try:
+                webbrowser.open(url)
+            except Exception as e:
+                self.status_label.setText(f"URL을 열 수 없습니다: {str(e)}")
+        
+        # 진행 상황 업데이트
+        opened_count = len(urls[:batch_size])
+        total_count = len(urls)
+        self.status_label.setText(f"{opened_count}/{total_count} URL 열림")
+        
+        # 남은 URL이 있으면 타이머로 다음 배치 예약
+        if len(urls) > batch_size:
+            QTimer.singleShot(delay, lambda: self.open_urls_in_batches(urls[batch_size:], batch_size, delay))
+        else:
+            self.status_label.setText("모든 URL이 열렸습니다.")
+
+    def save_current_view_2(self):
+        """현재 화면을 엑셀로 저장하는 기능"""
+        # save_current_view와 동일한 로직을 사용
+        self.save_current_view() 

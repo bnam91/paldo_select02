@@ -6,7 +6,7 @@ from release_updater import ReleaseUpdater
 
 # 환경 변수나 설정 파일에서 값 읽기
 owner = os.environ.get("GITHUB_OWNER", "bnam91")
-repo = os.environ.get("GITHUB_REPO", "autoUpdate")
+repo = os.environ.get("GITHUB_REPO", "paldo_select02")
 
 def run_program():
     # PyQt5 애플리케이션 실행

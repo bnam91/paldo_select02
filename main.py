@@ -1,8 +1,12 @@
-import sys
 import os
+import sys
+import PyQt5
 from PyQt5.QtWidgets import QApplication
 from gui import ExcelViewer
 from release_updater import ReleaseUpdater
+
+# Qt 플러그인 경로 설정
+os.environ['QT_QPA_PLATFORM_PLUGIN_PATH'] = os.path.join(os.path.dirname(PyQt5.__file__), 'Qt5', 'plugins')
 
 # 환경 변수나 설정 파일에서 값 읽기
 owner = os.environ.get("GITHUB_OWNER", "bnam91")

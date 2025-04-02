@@ -221,9 +221,8 @@ class TableManager:
     
     def on_cell_clicked(self, row, column):
         """테이블 셀 클릭 이벤트 핸들러"""
-        # URL 열이 클릭되었는지 확인
-        if self.parent.filtered_df is None:
-            return
+        # 클릭된 테이블 식별 (sender() 메서드 사용)
+        sender_table = self.parent.sender()
         
         # URL 열 인덱스 확인 (테이블 내에서의 인덱스)
         url_table_idx = -1
@@ -234,8 +233,8 @@ class TableManager:
                 break
         
         if column == url_table_idx:
-            # 클릭된 셀의 텍스트 가져오기
-            url_text = self.table.item(row, column).text()
+            # 클릭된 셀의 텍스트 가져오기 (실제 클릭된 테이블에서)
+            url_text = sender_table.item(row, column).text()
             if url_text and url_text.strip():
                 # URL 형식 확인 및 수정
                 url = url_text.strip()
@@ -413,10 +412,18 @@ class TableManager:
 
     def update_row_status_for_table(self, row_id, status, row_idx, table_widget):
         """특정 테이블의 행 상태 업데이트"""
-        # 원래 메서드 호출하여 상태 업데이트
-        self.update_row_status(row_id, status, row_idx)
+        old_status = self.parent.row_status.get(row_id, 0)
         
-        # 해당 테이블의 지정상품 칼럼 업데이트
+        # 상태 저장
+        self.parent.row_status[row_id] = status
+        
+        # 상태 변경 플래그 설정
+        self.parent.is_state_modified = True
+        
+        # 행 색상 변경
+        self.color_row_for_table(table_widget, row_idx, status)
+        
+        # 지정상품 칼럼에 상태 표시 업데이트
         item_product = table_widget.item(row_idx, 1)  # 1은 지정상품 칼럼 인덱스
         item_channel = table_widget.item(row_idx, 2)  # 2는 지정채널 칼럼 인덱스
         
@@ -427,19 +434,53 @@ class TableManager:
                 
                 # '전체'가 선택되었거나 선택된 항목이 없는 경우 '선정완료'로 표시
                 if not selected_product or selected_product == "전체":
-                    item_product.setText("선정완료")
+                    display_text = "선정완료"
                 else:
-                    item_product.setText(selected_product)
+                    display_text = selected_product
+                    
+                item_product.setText(display_text)
+                
+                # 지정상품 정보 저장
+                self.parent.assigned_products[row_id] = display_text
+                
+                # 지정채널 업데이트
+                selected_channel = self.parent.get_selected_channel()
+                if selected_channel:
+                    item_channel.setText(selected_channel)
+                    # 지정채널 정보 저장
+                    self.parent.assigned_channels[row_id] = selected_channel
             else:
                 # 다른 상태일 때는 비움
                 item_product.setText("")
                 item_channel.setText("")
+                
+                # 지정상품 및 채널 정보 삭제
+                if row_id in self.parent.assigned_products:
+                    del self.parent.assigned_products[row_id]
+                if row_id in self.parent.assigned_channels:
+                    del self.parent.assigned_channels[row_id]
         
-        # 추가로 해당 테이블의 색상 변경
-        self.color_row_for_table(table_widget, row_idx, status)
+        # 선정(1) -> 다른 상태로 변경된 경우, 관련 완료 상태 해제
+        if old_status == 1 and status != 1 and self.parent.contact_column_idx != -1:
+            self.clear_completed_status_for_contact(row_id)
         
-        # 메인 테이블도 업데이트
-        self.update_table(self.parent.filtered_df)
+        # 다른 상태 -> 선정(1) 상태로 변경된 경우, 동일 연락처 행들을 완료로 변경
+        elif status == 1 and self.parent.contact_column_idx != -1:
+            self.mark_duplicate_contacts_as_completed(row_id)
+        
+        # 상태 통계 업데이트
+        self.parent.update_status_statistics()
+        
+        # 테이블 리프레시 - 각 탭의 테이블 업데이트
+        current_tab_index = self.parent.tab_widget.currentIndex()
+        if current_tab_index == 0:  # 데이터 탭
+            self.update_table(self.parent.filtered_df)
+        else:
+            # 현재 탭의 테이블에 데이터 업데이트
+            self.update_table_widget(table_widget, self.parent.filtered_df)
+        
+        # UI 강제 업데이트
+        QApplication.processEvents()
 
     def color_row_for_table(self, table_widget, row, status):
         """특정 테이블의 행 배경색 설정"""
